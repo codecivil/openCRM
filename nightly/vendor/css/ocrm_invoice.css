@@ -1,0 +1,29 @@
+.invoice_wrapper { padding: 2cm; height: 257mm; width: 170mm; background: url('/img/frontpage.jpg'); background-size: contain; background-position: center; font-size: 8pt; }
+.invoice_page { padding: 2cm; height: 257mm; width: 170mm; background: url('/img/page.jpg'); background-size: contain; background-position: center; font-size: 8pt; }
+
+.invoiceheader { 
+	position: relative;
+	top: 0;
+	height: 79mm;
+}
+
+.invoicecc {
+	height: 42%;
+}
+
+.invoiceaddress {
+	height: 58%;
+}
+
+.invoicedata {
+	position: relative;
+	top: -60%;
+	left: 50%;
+	width: 50%;
+}
+
+.invoice_wrapper table { width: 100%; }
+.invoice_wrapper th,td { text-align: right; vertical-align: top; }
+.invoice_wrapper .justify { text-align: justify; }
+.invoicereport{ font-family: Courier, monospace; }
+
