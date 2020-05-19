@@ -122,7 +122,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_marked[$index] = '';
 		if ( $_process['id_ocrm_processes'] == $PARAM['id_ocrm_processes'] ) { $_marked[$index] = 'marked'; };
 		$_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>';
-		if ( ! isset($_processes_result[$pos]) OR $_processes_result[$pos]['processtype'] != $_process['processtype'] ) {
+		if ( ! isset($_processes_result[$_pos]) OR $_processes_result[$_pos]['processtype'] != $_process['processtype'] ) {
 			$oldtype = $_process['processtype'];
 			//count one line per 55 characters in "Tätigkeit"
 			$_currentheight += 9.2;
@@ -318,7 +318,7 @@ function createProposal(array $PARAM, mysqli $conn)
 		$_marked[$index] = '';
 		if ( $_process['id_ocrm_processes'] == $PARAM['id_ocrm_processes'] ) { $_marked[$index] = 'marked'; };
 		$_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>';
-		if ( ! isset($_processes_result[$pos]) OR $_processes_result[$pos]['processtype'] != $_process['processtype'] ) {
+		if ( ! isset($_processes_result[$_pos]) OR $_processes_result[$_pos]['processtype'] != $_process['processtype'] ) {
 			$oldtype = $_process['processtype'];
 			//count one line per 55 characters in "Tätigkeit"
 			$_currentheight += 9.2;
