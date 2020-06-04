@@ -5,7 +5,7 @@ function localFormat($number) { return number_format((float)$number,2,",","."); 
 function inCents($number) { return round((float)$number,2); }
 function inTegers($number) { return round((float)$number); }
 
-
+//scope: DETAILS
 function createInvoice(array $PARAM, mysqli $conn)
 {
 	//determine intended invoice
@@ -176,6 +176,10 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_stmt_array['arr_values'][] = $PARAMETER['id_ocrm_invoices'];
 		_execute_stmt($_stmt_array,$conn);
 	}
+	//get (first) active id
+	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
+	$_stmt_array['stmt'] = "SELECT * from view__ocrm_identity__".$_SESSION['os_role']." WHERE idactive = 'ja';";
+	$_myid = execute_stmt($_stmt_array,$conn,true)['result'][0];	
 	?>
 	<link rel="stylesheet" type="text/css" href="/css/ocrm_invoice.css">
 	<?php includeFunctions('DETAILS',$conn); ?>	
@@ -186,6 +190,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		<div class="invoiceheader">
 			<div class="invoicecc"></div>
 			<div class="invoiceaddress">
+				<div class="myidentity"><?php echo($_myid['idname'].' | '.$_myid['idstreet'].' | '.$_myid['idpostcode'].' '.$_myid['idcity']); ?></div>
 				<div class="invoicename"><?php html_echo($_customer_result['name']); ?></div>
 				<div class="invoicecontact"><?php html_echo($_customer_result['contact']); ?></div>
 				<div class="invoicestreet"><?php html_echo($_customer_result['street']); ?></div>
@@ -217,6 +222,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 	</div>
 <?php }
 
+//scope: DETAILS
 function createProposal(array $PARAM, mysqli $conn)
 {
 	//determine intended proposal
@@ -372,6 +378,10 @@ function createProposal(array $PARAM, mysqli $conn)
 		$_stmt_array['arr_values'][] = $PARAMETER['id_ocrm_proposals'];
 		_execute_stmt($_stmt_array,$conn);
 	}
+	//get (first) active id
+	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
+	$_stmt_array['stmt'] = "SELECT * from view__ocrm_identity__".$_SESSION['os_role']." WHERE idactive = 'ja';";
+	$_myid = execute_stmt($_stmt_array,$conn,true)['result'][0];	
 	?>
 	<link rel="stylesheet" type="text/css" href="/css/ocrm_invoice.css">
 	<?php includeFunctions('DETAILS',$conn); ?>	
@@ -382,6 +392,7 @@ function createProposal(array $PARAM, mysqli $conn)
 		<div class="invoiceheader">
 			<div class="invoicecc"></div>
 			<div class="invoiceaddress">
+				<div class="myidentity"><?php echo($_myid['idname'].' | '.$_myid['idstreet'].' | '.$_myid['idpostcode'].' '.$_myid['idcity']); ?></div>
 				<div class="invoicename"><?php html_echo($_customer_result['name']); ?></div>
 				<div class="invoicecontact"><?php html_echo($_customer_result['contact']); ?></div>
 				<div class="invoicestreet"><?php html_echo($_customer_result['street']); ?></div>
@@ -407,5 +418,95 @@ function createProposal(array $PARAM, mysqli $conn)
 		</table>
 		<div>Ich würde mich über eine Auftragserteilung freuen und sichere Ihnen eine sorgfältige Ausführung zu.</div>
 	</div>
-<?php } ?>
+<?php } 
+
+//scope: TABLES
+function viewBook(array $PARAM, mysqli $conn) {
+	$rnd = rand(0,2147483647);
+	//get tax type data
+	unset($_stmt_array); $_stmt_array = array(); unset($_taxtype);
+	$_stmt_array['stmt'] = "SELECT idtaxtype from view__ocrm_identity__".$_SESSION['os_role']." WHERE idactive = 'ja';";
+	$_taxtype = execute_stmt($_stmt_array,$conn,true)['result'][0]['idtaxtype']; //first index, then keynames
+	?>
+	<link rel="stylesheet" type="text/css" href="/css/ocrm_book.css">
+	<?php includeFunctions('OCRM_BOOK',$conn); //OCRM_BOOK (new!) ?> 
+	<div class="db_headline_wrapper"><h2 class="db_headline"><i class="fas fa-book"></i> Buchungen nach <?php echo($_taxtype); ?>-Besteuerung</h2></div>
+	<div class="book_settings">	
+		<form method="POST" action="" onsubmit="callFunction(this,'_createBook','book_wrapper_<?php echo($rnd); ?>'); return false;">
+			<label for="bookbegin<?php echo($rnd); ?>">von </label>
+			<input type="date" name="bookbegin" id="bookbegin<?php echo($rnd); ?>" value="<?php echo((new DateTime())::createFromFormat('U',time())->format('Y').'-01-01'); ?>"><br><br>
+			<label for="bookbegin<?php echo($rnd); ?>"> bis </label>
+			<input type="date" name="bookend" id="bookend<?php echo($rnd); ?>" value="<?php echo((new DateTime())::createFromFormat('U',time())->format('Y-m-d')); ?>"><br><br>
+			<label for="submitBook<?php echo($rnd); ?>" class="showbook"> <b>anzeigen</b> </label>
+			<input type="submit" id="submitBook<?php echo($rnd); ?>" hidden /><br><br>
+		</form>
+	</div>
+	<div class="clear"></div>
+	<div class="book_wrapper" id="book_wrapper_<?php echo($rnd); ?>"></div>
+	<?php
+}
+
+function _createBook(array $PARAM, mysqli $conn) {
+	//get tax type data
+	unset($_stmt_array); $_stmt_array = array(); unset($_taxtype);
+	$_stmt_array['stmt'] = "SELECT idtaxtype from view__ocrm_identity__".$_SESSION['os_role']." WHERE idactive = 'ja';";
+	$_taxtype = execute_stmt($_stmt_array,$conn,true)['result'][0]['idtaxtype']; //first index, then keynames
+	//get expenses data
+	if ( $_taxtype == "Soll" ) { $_datetype = "expensedate"; } else { $_datetype = "expensepaid"; }
+	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
+	$_stmt_array['stmt'] = 'SELECT expensetype as type,expensename AS name,'.$_datetype.' as date,-expensecost as amount,-expensevat AS vat from view__ocrm_expenses__'.$_SESSION['os_role'].' WHERE expensedate BETWEEN ? AND ?';
+	$_stmt_array['str_types'] = 'ss';
+	$_stmt_array['arr_values'] = array($PARAM['bookbegin'],$PARAM['bookend']);
+	$_table_result = execute_stmt($_stmt_array,$conn,true)['result']; //first index, then keynames
+	if ( ! is_array($_table_result) ) { $_table_result = array (); };
+	//get revenues data
+	unset($_stmt_array); $_stmt_array = array();
+	if ( $_taxtype == "Soll" ) {
+		$_stmt_array['stmt'] = "SELECT 'Einnahme' as type,invoicenumber AS name,invoicedate as date,invoiceamount as amount,invoicevat AS vat,invoicevatrate as revenuevatrate from view__ocrm_invoices__".$_SESSION['os_role']." WHERE invoicedate BETWEEN ? AND ? AND invoicefinished = 'ja'";
+	} else {
+		$_stmt_array['stmt'] = "SELECT 'Einnahme' as type,revenuename AS name,revenuedate as date,revenueamount as amount,revenuevat AS vat,revenuevatrate from view__ocrm_revenues__".$_SESSION['os_role']." WHERE revenuedate BETWEEN ? AND ?";
+	}
+	$_stmt_array['str_types'] = 'ss';
+	$_stmt_array['arr_values'] = array($PARAM['bookbegin'],$PARAM['bookend']);
+	$_table_result = array_merge($_table_result,execute_stmt($_stmt_array,$conn,true)['result']); //first index, then keynames
+	array_multisort(array_column($_table_result,'date'),$_table_result); //sort by date ascending
+	$_net = 0;
+	$_vatexpense = 0;
+	$_vatrevenue = array();
+	$_vat = 0;
+	?>
+	<table>
+		<thead>
+			<tr><th>Datum</th><th>Kostenart</th><th>Beschreibung</th><th>Betrag</th><th>MwSt</th><th>MwSt-Satz</th></tr>
+		</thead>
+		<tbody>
+			<?php foreach ( $_table_result  as $_result ) {
+				?>
+				<tr><td><?php echo(_cleanup($_result['date'])); ?></td><td><?php echo($_result['type']); ?></td><td><?php echo($_result['name']); ?></td><td><?php echo(_cleanup($_result['amount'])); ?></td><td><?php echo(_cleanup($_result['vat'])); ?></td><td><?php echo(_cleanup($_result['revenuevatrate'])); ?></td></tr>
+				<?php
+				$_net += $_result['amount'];
+				$_vat += $_result['vat'];
+				$_vatexpense += min(0,$_result['vat']);
+				if ( isset($_result['revenuevatrate']) AND $_result['revenuevatrate'] != '' ) {
+					if ( ! isset($_vatrevenue[$_result['revenuevatrate']]) ) { $_vatrevenue[$_result['revenuevatrate']] = $_result['vat']; } else { $_vatrevenue[$_result['revenuevatrate']] += max(0,$_result['vat']); }
+				}
+			}
+			?>
+			<tr><th></th><th></th><th>Summe</th><th><?php echo(_cleanup($_net)); ?></th><th><?php echo(_cleanup($_vat)); ?></th></tr>
+			<tr><th></th><th></th><th></th><th>Vorsteuerabzug</th><th><?php echo(_cleanup(-$_vatexpense)); ?></th></tr>
+			<?php foreach ( $_vatrevenue as $_vatrate=>$_vatamount ) {
+			?>
+				<tr><th></th><th></th><th></th><th>Umsatzsteuer <?php echo(_cleanup($_vatrate).'%'); ?></th><th><?php echo(_cleanup($_vatamount)); ?></th></tr>
+			<?php
+			}
+			?>
+		</tbody>
+	</table>
+	<?php
+}
+
+
+?>
+
+
 

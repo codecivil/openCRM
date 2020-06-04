@@ -534,6 +534,7 @@ CREATE TABLE `ocrm_revenues` (
   `revenuedate` date DEFAULT current_timestamp(),
   `revenueamount` decimal(7,2) DEFAULT NULL,
   `revenuevat` decimal(7,2) DEFAULT NULL,
+  `revenuevatrate` decimal(4,2) DEFAULT NULL,
   PRIMARY KEY (`id_ocrm_revenues`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 `ENCRYPTED`=YES;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -626,7 +627,7 @@ UNLOCK TABLES;
 
 LOCK TABLES `os_functions` WRITE;
 /*!40000 ALTER TABLE `os_functions` DISABLE KEYS */;
-INSERT INTO `os_functions` VALUES (10,'receipt','createInvoice','Rechnung erstellen','DETAILS','details invoice','[0]','_popup_'),(11,'user-tie','createProposal','Angebot erstellen','DETAILS','details invoice','[0]','_popup_');
+INSERT INTO `os_functions` VALUES (10,'receipt','createInvoice','Rechnung erstellen','DETAILS','details invoice','[0]','_popup_'),(11,'user-tie','createProposal','Angebot erstellen','DETAILS','details invoice','[0]','_popup_'),(12,'book','viewBook','Buch anzeigen','OCRM_BOOK','details book','[0]','_popup_');
 /*!40000 ALTER TABLE `os_functions` ENABLE KEYS */;
 UNLOCK TABLES;
 

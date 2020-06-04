@@ -1,0 +1,4 @@
+.book table { width: 100%; }
+.book .book_settings { background: var(--background-action); margin: 0.5rem; border-radius: 5px; box-shadow: 0px 2px 5px #444	;}
+.book_wrapper th, .book_wrapper td { text-align: right; vertical-align: top; }
+.showbook { background: var(--background-tables); border-radius: 5px; }
