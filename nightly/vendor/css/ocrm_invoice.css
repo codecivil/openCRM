@@ -26,6 +26,7 @@
 .invoice_wrapper th,td { text-align: right; vertical-align: top; }
 .invoice_wrapper .justify { text-align: justify; }
 .invoicereport{ font-family: Courier, monospace; }
+.invoicepagenumber { text-align: right; }
 
 .myidentity { font-size: 5pt; }
 

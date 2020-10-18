@@ -80,8 +80,8 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_reportpart = (new DateTime())::createFromFormat('U',$_process['processunixbegin'])->format('d.m.Y H:i').' - '.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format($_dayend.'H:i').': '.$_process['processdetails'].'<br />';
 		$_noreportlines = round(strlen($_reportpart)/105+0.5);
 		$_reportheight += $_noreportlines*4.6;
-		if ( $_reportheight > 230) { 
-			$_report += "
+		if ( $_reportheight > 260) { 
+			$_report .= "
 				</div>
 				<div class=\"invoice_page invoicereport\">
 			";
@@ -104,7 +104,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_nolines = round(strlen($_process['processtype'].': '.$_process['processdetails'])/55+0.5);
 		$_currentheight += $_nolines*4.6;
 		//check if we need new page
-		if ( $_currentheight > 230) { 
+		if ( $_currentheight > 260) { 
 			$_nopages += 1;
 			$_processtable += "
 					</table>
@@ -135,9 +135,9 @@ function createInvoice(array $PARAM, mysqli $conn)
 			if ( ! isset($_totalvatamount[$vatrate]) ) { $_totalvatamount[$vatrate] = $partialvatrate; } else { $_totalvatamount[$vatrate] += $partialvatrate; }
 		}
 	}
-	if ( $_currentheight > 200) { 
+	if ( $_currentheight > 230) { 
 		$_nopages += 1;
-		$_processtable += "
+		$_processtable .= "
 				</table>
 			</div>
 			<div class=\"invoice_page\">
@@ -206,7 +206,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 				<tr><td>Seite</td><td>1/<?php echo($_nopages); ?></td></tr>
 				</table>
 			</div>
-		</div>
+		</div> <!-- end of invoiceheader -->
 		<h2>Rechnung<?php echo($_copy); ?></h2>
 		<table>
 			<thead>
@@ -215,7 +215,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 			<?php echo($_processtable); ?>
 		</table>
 		<div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
-	</div>
+	</div> <!-- end of invoice_wrapper -->
 	<div class="invoice_page invoicereport">
 		<h3>Arbeitsbericht</h3>
 	<?php echo($_report); ?>
@@ -308,7 +308,7 @@ function createProposal(array $PARAM, mysqli $conn)
 		//check if we need new page
 		if ( $_currentheight > 230) { 
 			$_nopages += 1;
-			$_processtable += "
+			$_processtable .= "
 					</table>
 				</div>
 				<div class=\"invoice_page\">
@@ -468,7 +468,11 @@ function _createBook(array $PARAM, mysqli $conn) {
 	}
 	$_stmt_array['str_types'] = 'ss';
 	$_stmt_array['arr_values'] = array($PARAM['bookbegin'],$PARAM['bookend']);
-	$_table_result = array_merge($_table_result,execute_stmt($_stmt_array,$conn,true)['result']); //first index, then keynames
+	$_rev = execute_stmt($_stmt_array,$conn,true);
+	if ( is_array($_rev['result']) ) {
+		$_table_result = array_merge($_table_result,$_rev['result']); //first index, then keynames
+	}
+ 	//$_table_result = array_merge($_table_result,execute_stmt($_stmt_array,$conn,true)['result']); //first index, then keynames
 	array_multisort(array_column($_table_result,'date'),$_table_result); //sort by date ascending
 	$_net = 0;
 	$_vatexpense = 0;
