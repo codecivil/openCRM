@@ -409,6 +409,8 @@ function createProposal(array $PARAM, mysqli $conn)
 			</div>
 		</div>
 		<h2>Angebot<?php echo($_copy); ?></h2>
+		<p>Sehr geehrte(r) <?php html_echo($_customer_result['contact']); ?>,</p>
+		<?php echo($PARAMETER['proposaltext']); ?>
 		<div>Ich danke für Ihre Anfrage und biete wie folgt an:</div>
 		<table>
 			<thead>
