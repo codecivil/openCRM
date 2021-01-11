@@ -106,7 +106,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		//check if we need new page
 		if ( $_currentheight > 260) { 
 			$_nopages += 1;
-			$_processtable += "
+			$_processtable .= "
 					</table>
 				</div>
 				<div class=\"invoice_page\">
