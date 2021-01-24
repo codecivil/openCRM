@@ -1,5 +1,5 @@
-.invoice_wrapper { padding: 2cm; height: 257mm; width: 170mm; background: url('/img/invoice/frontpage.jpg'); background-size: contain; background-position: center; font-size: 8pt; }
-.invoice_page { padding: 2cm; height: 257mm; width: 170mm; background: url('/img/invoice/page.jpg'); background-size: contain; background-position: center; font-size: 8pt; }
+.invoice_wrapper { padding: 2cm; height: 256mm; width: 170mm; background: url('/img/invoice/frontpage.jpg'); background-size: contain; background-position: center; font-size: 8pt; }
+.invoice_page { padding: 2cm; height: 256mm; width: 170mm; background: url('/img/invoice/page.jpg'); background-size: contain; background-position: center; font-size: 8pt; }
 .invoiceheader { 
 	position: relative;
 	top: 0;
