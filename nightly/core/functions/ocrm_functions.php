@@ -102,7 +102,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		}
 		//count one line per 55 characters in "Tätigkeit"
 		$_nolines = round(strlen($_process['processtype'].': '.$_process['processdetails'])/55+0.5);
-		$_currentheight += $_nolines*4.6;
+		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_currentheight += $_nolines*4.6; }
 		//check if we need new page
 		if ( $_currentheight > 260) { 
 			$_nopages += 1;
@@ -121,7 +121,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		//add to table
 		$_marked[$index] = '';
 		if ( $_process['id_ocrm_processes'] == $PARAM['id_ocrm_processes'] ) { $_marked[$index] = 'marked'; };
-		$_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>';
+		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>'; }
 		if ( ! isset($_processes_result[$_pos]) OR $_processes_result[$_pos]['processtype'] != $_process['processtype'] ) {
 			$oldtype = $_process['processtype'];
 			//count one line per 55 characters in "Tätigkeit"
@@ -147,7 +147,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 						<tr><th>Pos.</th><th>Tätigkeit</th><th>Datum</th><th>Preis/Einheit</th><th>Einheiten</th><th>Preis</th></tr>
 					</thead>
 		";
-		$_currentheight = 5+$_nolines*4.6;
+		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_currentheight = 5+$_nolines*4.6; } else { $_currentheight = 5; }
 	}
 	$_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Netto</th><th>'.localFormat(inCents($_totalnetamount)).'</th></tr>';
 	$_totalgrossamount = $_totalnetamount;
