@@ -33,7 +33,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 	$PARAMETER = execute_stmt($_stmt_array,$conn,true)['result'][0];
 	//32 second intervals in the current year (so we get only 7 digits)
 	$invno = round((time()-strtotime((new DateTime())::createFromFormat('U',time())->format('Y').'-01-01 00:00'))/32);
-	$invno = substr($invno,0,3).'-'.substr($invno,3);
+	$invno = substr($invno,0,strlen($invno)-3).'-'.substr($invno,-3);
 	//$PARAMETER is invoice parameters
 	//header
 	//get attributed customer
@@ -250,7 +250,7 @@ function createProposal(array $PARAM, mysqli $conn)
 	$PARAMETER = execute_stmt($_stmt_array,$conn,true)['result'][0];
 	//32 second intervals in the current year (so we get only 7 digits)
 	$invno = round((time()-strtotime((new DateTime())::createFromFormat('U',time())->format('Y').'-01-01 00:00'))/32);
-	$invno = substr($invno,0,3).'-'.substr($invno,3);
+	$invno = substr($invno,0,strlen($invno)-3).'-'.substr($invno,-3);
 	//$PARAMETER is proposal parameters
 	//header
 	//get attributed customer
