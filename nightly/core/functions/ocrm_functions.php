@@ -183,7 +183,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 	?>
 	<link rel="stylesheet" type="text/css" href="/css/ocrm_invoice.css">
 	<?php includeFunctions('DETAILS',$conn); ?>	
-	<form class="db_options" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
+	<form class="db_options function" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
 		<input type="text" hidden value="<?php html_echo($PARAMETER['id_ocrm_invoices']); ?>" name="id_ocrm_invoices" class="inputid" />
 	</form>
 	<div class="invoice_wrapper">
@@ -385,7 +385,7 @@ function createProposal(array $PARAM, mysqli $conn)
 	?>
 	<link rel="stylesheet" type="text/css" href="/css/ocrm_invoice.css">
 	<?php includeFunctions('DETAILS',$conn); ?>	
-	<form class="db_options" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
+	<form class="db_options function" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
 		<input type="text" hidden value="<?php html_echo($PARAMETER['id_ocrm_proposals']); ?>" name="id_ocrm_proposals" class="inputid" />
 	</form>
 	<div class="invoice_wrapper">
