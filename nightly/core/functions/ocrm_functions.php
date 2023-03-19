@@ -215,6 +215,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 			<?php echo($_processtable); ?>
 		</table>
 		<div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
+		<div><?php echo($PARAMETER['invoicemessage']); ?></div>
 	</div> <!-- end of invoice_wrapper -->
 	<div class="invoice_page invoicereport">
 		<h3>Arbeitsbericht</h3>
