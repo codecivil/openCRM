@@ -51,19 +51,32 @@ function createInvoice(array $PARAM, mysqli $conn)
 	$_processes_result = execute_stmt($_stmt_array,$conn,true)['result'];
 	if ( ! isset($_processes_result) OR sizeof($_processes_result) == 0 ) { echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Zu der gewählten Rechnung gibt es keine Tätigkeiten."); return; }
 	$_report = '';
-	$_totalnet = array();
-	$_totalvat = array();
-	$_totalunits = array();
+	$_totalnet = array(); //keys are product types
+	$_totalvat = array(); //keys are product types
+	$_totalunits = array(); //keys are product types
 	$_earliest = 9999999999;
 	$_latest = 0;
 	$_oldtype = '';
 	$_processtable='';
-	$_totalnetamount = 0;
-	$_totalvatamount = array();
+	$_totalnetamount = array(); //keys are vatrates
+	$_totalvatamount = array(); //keys are vatrates
+    $_totalnetamounttotal = 0;
 	$_currentheight = 100.0;
 	$_reportheight = 10;
 	$_nopages = 1;
 	$_em = array(); $_slashem = array(); $_marked = array();
+
+    //create XML in parallel
+    $_invoicexmlstring = file_get_contents('../../core/xml/invoice_template.xml');
+    $_invoicexml = new SimpleXMLElement($_invoicexmlstring);
+    //register namespaces (see https://www.php.net/manual/en/simplexmlelement.xpath.php)
+    foreach($_invoicexml->getDocNamespaces() as $strPrefix => $strNamespace) {
+        if(strlen($strPrefix)==0) {
+            $strPrefix="a"; //Assign an arbitrary namespace prefix.
+        }
+        $_invoicexml->registerXPathNamespace($strPrefix,$strNamespace);
+    }
+    $_sectionno = 0;
 	foreach ( $_processes_result as $index=>$_process ) {
 		$_pos = $index+1;
 		$_earliest = min($_earliest,$_process['processunixbegin']);
@@ -73,6 +86,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		if ( ! isset($_totalvat[$_process['processtype']][$_process['processvatrate']]) ) { $_totalvat[$_process['processtype']][$_process['processvatrate']] = 0; };
 		if ( ! isset($_totalunits[$_process['processtype']]) ) { $_totalunits[$_process['processtype']] = array(); };
 		if ( ! isset($_totalunits[$_process['processtype']][$_process['processunit']]) ) { $_totalunits[$_process['processtype']][$_process['processunit']] = 0; };
+        if ( ! isset($_totalnetamount[$_process['processvatrate']]) ) { $_totalnetamount[$_process['processvatrate']] = 0; }
 		//collect and sort info
 		if ( (new DateTime())::createFromFormat('U',$_process['processunixbegin'])->format('d.m.Y') == (new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y') ) { $_dayend = ''; } else { $_dayend = 'd.m.Y '; };
 		$_em[$index] = ''; $_slashem[$index] = '';
@@ -97,6 +111,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 				$_process['total'] = inCents($_process['processunits'])*$_process['processrate'];
 				$_totalunits[$_process['processtype']][$_process['processunit']] += inCents($_process['processunits']);
 				$_totalnet[$_process['processtype']] += inCents($_process['total']);
+				$_totalnetamount[$_process['processvatrate']] += inCents($_process['total']);
 				$_totalvat[$_process['processtype']][$_process['processvatrate']] += (float)$_process['processvatrate']/100*inCents($_process['total']);
 				break;
 		}
@@ -121,15 +136,78 @@ function createInvoice(array $PARAM, mysqli $conn)
 		//add to table
 		$_marked[$index] = '';
 		if ( $_process['id_ocrm_processes'] == $PARAM['id_ocrm_processes'] ) { $_marked[$index] = 'marked'; };
-		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>'; }
+		if ( $PARAMETER['invoicedetailed'] == "ja" ) {
+            $_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>';
+            //xml part:
+            $ISCT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction')->addChild('ram:IncludedSupplyChainTradeLineItem');
+                $ADLD = $ISCT->addChild('ram:AssociatedDocumentLineDocument');
+                    $ADLD->addChild('ram:LineID',$_pos);
+                $STP = $ICST->addChild('ram:SpecifiedTradeProduct');
+                    $STP->addChild('ram:SellerAsignedID');
+                    $STP->addChild('ram:Name',$_process['processtype'].': '.$_process['processdetails']);
+                $SLTA = $ICST->addChild('ram:SpecifiedLineTradeAgreement');
+                    $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice');
+                        $NPPTP->addChild('ram:ChargeAmount',$_process['processrate']);
+                    $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice');
+                        $GPPTP->addChild('ram:ChargeAmount',$_process['processrate']+(float)$_process['processvatrate']/100*$_process['processrate']);
+                $SLTD = $ICST->addChild('ram:SpecifiedLineTradeDelivery');
+                    $BQ = $SLTD->addChild('ram:BilledQuantity',$_process['processunits']);
+                    if ( $_process['processunit'] == 1 ) {
+                        $BQ->addAttribute('unitCode','H87');
+                    }
+                    if ( $_process['processunit'] == 'h' ) {
+                        $BQ->addAttribute('unitCode','LH');
+                    }
+                $SLTS = $ICST->addChild('ram:SpecifiedLineTradeSettlement');
+                if ( (float)$PARAMETER['invoicevat'] > 0 ) {
+                    $ATT = $SLTS->addChild('ram:ApplicableTradeTax');
+                    $ATT->addChild('ram:TypeCode','VAT');
+                    $ATT->addChild('ram:CategoryCode','S');
+                    $ATT->addChild('ram:RateApplicablePercent',inCent($_process['processvatrate']));
+                }
+                    $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation');
+                        $STSLMS->addChild('ram:LineTotalAmount',inCents($_process['total']));
+        }
 		if ( ! isset($_processes_result[$_pos]) OR $_processes_result[$_pos]['processtype'] != $_process['processtype'] ) {
+            $_sectionno += 1;
 			$oldtype = $_process['processtype'];
 			//count one line per 55 characters in "Tätigkeit"
 			$_currentheight += 9.2;
 			$_processtable .= '<tr><th>&nbsp;</th><th>'.$oldtype.'</th><th>&nbsp;</th><th>&nbsp;</th><th>'.inTegers($_totalunits[$oldtype]['1']).' | '.localFormat(inCents($_totalunits[$oldtype]['h'])).'h</th><th>'.localFormat(inCents($_totalnet[$oldtype])).'</th></tr><tr><td>&nbsp;</td></tr>';
+            //xml part:
+            if ( $PARAMETER['invoicedetailed'] == "nein" ) {
+                $ISCT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction')->addChild('ram:IncludedSupplyChainTradeLineItem');
+                    $ADLD = $ISCT->addChild('ram:AssociatedDocumentLineDocument');
+                        $ADLD->addChild('ram:LineID',$_sectionno);
+                    $STP = $ICST->addChild('ram:SpecifiedTradeProduct');
+                        $STP->addChild('ram:SellerAsignedID');
+                        $STP->addChild('ram:Name',$_oldtype);
+                    $SLTA = $ICST->addChild('ram:SpecifiedLineTradeAgreement');
+                        $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice');
+                            if ( $_totalunits[$oldtype]['1']*$_totalunits[$oldtype]['h'] == 0 ) {
+                                $_units = max($_totalunits[$oldtype]['1']*$_totalunits[$oldtype]['h']);
+                                if ( $_totalunits[$oldtype]['1'] > 0 ) { $_unit = 'H87'; } else { $_unit = 'LH'; }
+                                $_productprice = $_totalnet[$_oldtype]/$_units; 
+                            }
+                            $NPPTP->addChild('ram:ChargeAmount',$_productprice);
+                        $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice');
+                            $GPPTP->addChild('ram:ChargeAmount',$_productprice+(float)$_process['processvatrate']/100*$_productprice);
+                    $SLTD = $ICST->addChild('ram:SpecifiedLineTradeDelivery');
+                        $BQ = $SLTD->addChild('ram:BilledQuantity',$_units);
+                        $BQ->addAttribute('unitCode',$_unit);
+                    $SLTS = $ICST->addChild('ram:SpecifiedLineTradeSettlement');
+                    if ( (float)$PARAMETER['invoicevat'] > 0 ) {
+                        $ATT = $SLTS->addChild('ram:ApplicableTradeTax');
+                        $ATT->addChild('ram:TypeCode','VAT');
+                        $ATT->addChild('ram:CategoryCode','S');
+                        $ATT->addChild('ram:RateApplicablePercent',inCents($_process['processvatrate']));
+                    }
+                        $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation');
+                            $STSLMS->addChild('ram:LineTotalAmount',inCents($_totalnet[$_oldtype]));
+            } 
 		};
 	}
-	foreach ($_totalnet as $_partialnet ) { $_totalnetamount += $_partialnet; }
+	foreach ($_totalnetamount as $_partialnet ) { $_totalnetamounttotal += $_partialnet; }
 	foreach ($_totalvat as $_partialvat ) { 
 		foreach ($_partialvat as $vatrate=>$partialvatrate) {
 			if ( ! isset($_totalvatamount[$vatrate]) ) { $_totalvatamount[$vatrate] = $partialvatrate; } else { $_totalvatamount[$vatrate] += $partialvatrate; }
@@ -149,17 +227,30 @@ function createInvoice(array $PARAM, mysqli $conn)
 		";
 		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_currentheight = 5+$_nolines*4.6; } else { $_currentheight = 5; }
 	}
-	$_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Netto</th><th>'.localFormat(inCents($_totalnetamount)).'</th></tr>';
-	$_totalgrossamount = $_totalnetamount;
-	foreach ($_totalvatamount as $vatrate=>$partialvatamount ) {
-		$_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>MwSt '.$vatrate.'%</th><th>'.localFormat(inCents($partialvatamount)).'</th></tr>';
-		$_totalgrossamount += $partialvatamount;
-	}
-	$_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Gesamt</th><th>'.localFormat(inCents($_totalgrossamount)).'</th></tr>';
+    //do not show any vat if invoicevat = 0 ("Kleinunternhemerregelung")
+    if ( (float)$PARAMETER['invoicevat'] > 0 ) {
+        $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Netto</th><th>'.localFormat(inCents($_totalnetamounttotal)).'</th></tr>';
+        $_totalgrossamount = $_totalnetamounttotal;
+        foreach ($_totalvatamount as $vatrate=>$partialvatamount ) {
+            $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>MwSt '.$vatrate.'%</th><th>'.localFormat(inCents($partialvatamount)).'</th></tr>';
+            $_totalgrossamount += $partialvatamount;
+            //xml part
+            $ATT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement')[0]->addChild('ram:ApplicableTradeTax');
+            $ATT->addChild('ram:CalculatedAmount',$partialvatamount);
+            $ATT->addChild('ram:TypeCode','VAT');
+            $ATT->addChild('ram:BasisAmount',$_totalnetamount[$vatrate]);
+            $ATT->addChild('ram:CategoryCode','S');
+            $ATT->addChild('ram:RateApplicablePercent',$vatrate);
+        }
+        $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Gesamt</th><th>'.localFormat(inCents($_totalgrossamount)).'</th></tr>';
+    } else {
+        $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Gesamt</th><th>'.localFormat(inCents($_totalnetamounttotal)).'</th></tr>';
+        $_totalgrossamount = $_totalnetamounttotal;
+    }
 	//test if inovice has already been finished and changed
 	$_copy = '';
 	if ( $PARAMETER['invoicefinished'] == "ja" ) {
-		if ( $PARAMETER['invoiceamount'] != (string)inCents($_totalgrossamount) OR $PARAMETER['invoicevat'] != (string)(inCents($_totalgrossamount)-inCents($_totalnetamount)) ) {
+		if ( $PARAMETER['invoiceamount'] != (string)inCents($_totalgrossamount) OR $PARAMETER['invoicevat'] != (string)(inCents($_totalgrossamount)-inCents($_totalnetamounttotal)) ) {
 			echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Die Rechnung wurde nach Erstellung geändert. Wenn die Änderungen legitim sind, ändern Sie den Status der Rechnung auf unerstellt und erstellen Sie sie erneut."); return; 
 		} else {
 			$_copy = " - Kopie";
@@ -172,15 +263,53 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_stmt_array['arr_values'] = array();
 		$_stmt_array['arr_values'][] = (string)$PARAMETER['invoicenumber'];
 		$_stmt_array['arr_values'][] = (string)inCents($_totalgrossamount);
-		$_stmt_array['arr_values'][] = (string)(inCents($_totalgrossamount)-inCents($_totalnetamount));
+		$_stmt_array['arr_values'][] = (string)(inCents($_totalgrossamount)-inCents($_totalnetamounttotal));
 		$_stmt_array['arr_values'][] = $PARAMETER['id_ocrm_invoices'];
 		_execute_stmt($_stmt_array,$conn);
 	}
 	//get (first) active id
 	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
 	$_stmt_array['stmt'] = "SELECT * from view__ocrm_identity__".$_SESSION['os_role']." WHERE idactive = 'ja';";
-	$_myid = execute_stmt($_stmt_array,$conn,true)['result'][0];	
+	$_myid = execute_stmt($_stmt_array,$conn,true)['result'][0];
+    //set header fields
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:ID')[0][0] = $PARAMETER['invoicenumber'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IssueDateTime/udt:DateTimeString')[0][0] = (new DateTime($PARAMETER['invoicedate']))->format('Ymd');
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[0][0] = $PARAMETER['invoicemessage'];
+    if ( (float)$PARAMETER['invoicevat'] == 0 ) {
+        $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[0][0] .= " Als Kleinunternehmen nach § 19 Abs. 1 UStG weist ".$_myid['name']." keine Umsatzsteuer aus.";
+    }
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[1][0] = $_myid['idname'].PHP_EOL.$_myid['idstreet'].PHP_EOL.$_myid['idpostcode'].' '.$_myid['idcity'].PHP_EOL.'USt-ID: '.$_myid['idvattaxnr'];
+
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:GlobalID')[0][0] = $_myid['idduns'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:Name')[0][0] = $_myid['idname'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:PostcodeCode')[0][0] = $_myid['idpostcode'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:LineOne')[0][0] = $_myid['idstreet'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:CityName')[0][0] = $_myid['idcity'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:SpecifiedTaxRegistration/ram:ID')[0][0] = $_myid['idvattaxnr'];
+
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:ID')[0][0] = $_customer_result['code'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:Name')[0][0] = $_customer_result['name'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:PostalTradeAddress/ram:PostcodeCode')[0][0] = $_customer_result['postcode'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:PostalTradeAddress/ram:LineOne')[0][0] = $_customer_result['street'];
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:PostalTradeAddress/ram:CityName')[0][0] = $_customer_result['city'];
+
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeDelivery/ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/ram:DateTimeString')[0][0] = (new DateTime())::createFromFormat('U',$_latest)->format('Ymd');
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/ram:DateTimeString')[0][0] = (new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('Ymd');
+
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:LineTotalAmount')[0][0] = $_totalnetamounttotal;
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount')[0][0] = $_totalnetamounttotal;
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount')[0][0] = $_totalgrossamount-$_totalnetamounttotal;
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount')[0][0] = $_totalgrossamount;
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:DuePayableAmount')[0][0] = $_totalgrossamount;
+
+    if ( (float)$PARAMETER['invoicevat'] == 0 ) {
+        unset($_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount')[0]);
+        unset($_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount')[0]);
+        unset($_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount')[0]);
+    }
 	?>
+    <script type="text/javascript" src="/js/ocrm.js"></script>
+    <img hidden src="" onerror="exportXMLBase64('<?php echo($PARAMETER['invoicenumber']); ?>',null,'<?php base64_encode($_invoicexml->asXML()); ?>')"> 
 	<link rel="stylesheet" type="text/css" href="/css/ocrm_invoice.css">
 	<?php includeFunctions('DETAILS',$conn); ?>	
 	<form class="db_options function" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
@@ -214,6 +343,9 @@ function createInvoice(array $PARAM, mysqli $conn)
 			</thead>
 			<?php echo($_processtable); ?>
 		</table>
+        <?php if ( (float)$PARAMETER['invoicevat'] == 0 ) { ?>
+		<div>Als Kleinunternehmen nach § 19 Abs. 1 UStG weist <?php echo($_myid['name']); ?> keine Umsatzsteuer aus.</div>
+        <?php } ?>
 		<div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
 		<div><?php echo($PARAMETER['invoicemessage']); ?></div>
 	</div> <!-- end of invoice_wrapper -->

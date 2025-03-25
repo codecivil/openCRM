@@ -1,0 +1,17 @@
+v1.12.0
+======
+25.03.2025
+
+* XML invoices implemented (e-Rechnung)
+
+v1.11.0
+======
+24.03.2025
+
+* No VAT statement for zero invoice vat ("Kleinunternehmerregelung")
+
+v1.7.8
+======
+19.03.2023
+
+* added message to invoices
