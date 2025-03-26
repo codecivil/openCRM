@@ -36,6 +36,31 @@ function createInvoice(array $PARAM, mysqli $conn)
 	$invno = substr($invno,0,strlen($invno)-3).'-'.substr($invno,-3);
 	//$PARAMETER is invoice parameters
 	//header
+    //get id of invoice to be corrected if necessary (check if it really exists!) and insert an "already charged" process in the correction
+    $formerinvoice = array();
+    $formerinvoice['id_ocrm_invoices'] = $PARAM['id_ocrm_invoices'];
+    if ( $PARAMETER['invoicecorrected'] != null AND $PARAMETER['invoicecorrected'] != "" AND $PARAMETER['invoicecorrected'] != "_none_" ) {
+        unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
+        $_stmt_array['stmt'] = 'SELECT id_ocrm_invoices,invoiceamount,invoicevat from view__ocrm_invoices__'.$_SESSION['os_role'].' WHERE invoicenumber = ?';
+        $_stmt_array['str_types'] = 's';
+        $_stmt_array['arr_values'] = array($PARAMETER['invoicecorrected']);
+        $formerinvoice_response = execute_stmt($_stmt_array,$conn,true);
+        if ( isset($formerinvoice_response['result']) ) {
+            $formerinvoice = $formerinvoice_response['result'][0];
+        } else {
+    		echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Die zu korrigierende Rechnung existiert nicht."); return; 
+        }     
+        unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
+        $_stmt_array['stmt'] = "SELECT id_ocrm_processes FROM view__ocrm_processes__".$_SESSION['os_role']." WHERE processdetails = 'Rg. ".$PARAMETER['invoicecorrected']."'";
+        $correctionprocess = execute_stmt($_stmt_array,$conn);
+        if ( ! isset($correctionprocess['result']) ) {
+            unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
+            $_stmt_array['stmt'] = 'INSERT INTO view__ocrm_processes__'.$_SESSION['os_role'].' (id_ocrm_customers,id_ocrm_invoices,processbegin,processend,processunit,processrate,processdetails,processtype,processvatrate,processunits) VALUES (?,?,?,?,?,?,?,?,?,?)';
+            $_stmt_array['str_types'] = 'iissssssss';
+            $_stmt_array['arr_values'] = array($PARAMETER['id_ocrm_customers'],$PARAMETER['id_ocrm_invoices'],$PARAMETER['invoicedate'],$PARAMETER['invoicedate'],'1',(string)-(float)$formerinvoice['invoiceamount'],'Rg. '.$PARAMETER['invoicecorrected'],'Rabatt',0,1);
+            execute_stmt($_stmt_array,$conn);
+        }
+    }
 	//get attributed customer
 	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
 	$_stmt_array['stmt'] = 'SELECT * from view__ocrm_customers__'.$_SESSION['os_role'].' WHERE id_ocrm_customers = ?';
@@ -45,9 +70,9 @@ function createInvoice(array $PARAM, mysqli $conn)
 	if ( ! isset($_customer_result) OR sizeof($_customer_result) == 0 ) { echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Die Rechnung ist keinem Kunde zugeordnet."); return; }
 	//get attributed processes
 	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
-	$_stmt_array['stmt'] = 'SELECT id_ocrm_processes, UNIX_TIMESTAMP(processbegin) AS processunixbegin, UNIX_TIMESTAMP(processend) AS processunixend, processunit, processunits, processrate, processdetails, processtype, processvatrate from view__ocrm_processes__'.$_SESSION['os_role'].' WHERE id_ocrm_invoices = ? ORDER BY processtype,processbegin';
-	$_stmt_array['str_types'] = 'i';
-	$_stmt_array['arr_values'] = array($PARAMETER['id_ocrm_invoices']);
+	$_stmt_array['stmt'] = 'SELECT id_ocrm_processes, UNIX_TIMESTAMP(processbegin) AS processunixbegin, UNIX_TIMESTAMP(processend) AS processunixend, processunit, processunits, processrate, processdetails, processtype, processvatrate from view__ocrm_processes__'.$_SESSION['os_role'].' WHERE id_ocrm_invoices IN (?,?) ORDER BY processtype,processbegin';
+	$_stmt_array['str_types'] = 'ii';
+	$_stmt_array['arr_values'] = array($PARAMETER['id_ocrm_invoices'],$formerinvoice['id_ocrm_invoices']);
 	$_processes_result = execute_stmt($_stmt_array,$conn,true)['result'];
 	if ( ! isset($_processes_result) OR sizeof($_processes_result) == 0 ) { echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Zu der gewählten Rechnung gibt es keine Tätigkeiten."); return; }
 	$_report = '';
@@ -247,6 +272,9 @@ function createInvoice(array $PARAM, mysqli $conn)
         $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Gesamt</th><th>'.localFormat(inCents($_totalnetamounttotal)).'</th></tr>';
         $_totalgrossamount = $_totalnetamounttotal;
     }
+    if ( isset($formerinvoice['invoicevat']) ) {
+        $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><td>In Rg. '.$PARAMETER['invoicecorrected'].' enthaltene MwSt</td><td>'.localFormat(inCents($formerinvoice['invoicevat'])).'</td></tr>';
+    }
 	//test if inovice has already been finished and changed
 	$_copy = '';
 	if ( $PARAMETER['invoicefinished'] == "ja" ) {
@@ -344,9 +372,14 @@ function createInvoice(array $PARAM, mysqli $conn)
 			<?php echo($_processtable); ?>
 		</table>
         <?php if ( (float)$PARAMETER['invoicevat'] == 0 ) { ?>
-		<div>Als Kleinunternehmen nach § 19 Abs. 1 UStG weist <?php echo($_myid['name']); ?> keine Umsatzsteuer aus.</div>
+    		<div>Als Kleinunternehmen nach § 19 Abs. 1 UStG weist <?php echo($_myid['name']); ?> keine Umsatzsteuer aus.</div>
+        <?php } 
+        if ($_totalgrossamount > 0) { ?>
+            <div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
+        <?php }
+        if ($_totalgrossamount < 0) { ?>
+            <div>Sofern oder sobald Ihre Bankdaten vorliegen, wird der Betrag von <strong><?php echo(localFormat(inCents(-$_totalgrossamount))); ?> in den nächsten Tagen auf Ihr Konto überwiesen. Alternativ können Sie den Betrag auch mit nachfolgenden Rechnungen verrechnen. Wenn Sie eine Verrechnung beabsichtigen, würde ich um eine kurze Benachrichtigung bitten.</div>
         <?php } ?>
-		<div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
 		<div><?php echo($PARAMETER['invoicemessage']); ?></div>
 	</div> <!-- end of invoice_wrapper -->
 	<div class="invoice_page invoicereport">
