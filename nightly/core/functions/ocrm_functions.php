@@ -79,9 +79,10 @@ function createInvoice(array $PARAM, mysqli $conn)
 	$_totalnet = array(); //keys are product types
 	$_totalvat = array(); //keys are product types
 	$_totalunits = array(); //keys are product types
+	$_productprice = array(); //keys are product types
 	$_earliest = 9999999999;
 	$_latest = 0;
-	$_oldtype = '';
+	$oldtype = '';
 	$_processtable='';
 	$_totalnetamount = array(); //keys are vatrates
 	$_totalvatamount = array(); //keys are vatrates
@@ -104,9 +105,27 @@ function createInvoice(array $PARAM, mysqli $conn)
         $_invoicexml->registerXPathNamespace($strPrefix,$strNamespace);
     }
     $_sectionno = 0;
+    $_message = '';
 	foreach ( $_processes_result as $index=>$_process ) {
         //set process vat reate = 0 if invoice vat rate is 0
         if ( $PARAMETER['invoicevatrate'] == 0  ) { $_process['processvatrate'] = 0; }
+        //test for empty fields and ignore such processes
+        $_skipprocess = false;
+        foreach ( array('processunixbegin','processunixend','processbegin','processend','processunit','processunits','processrate','processdetails','processtype','processvatrate') as $_field ) {
+            if ( "$_process[$_field]" == null || "$_process[$_field]" == 'null' ) {
+                switch($_field) {
+                    case 'processunits':
+                        //processunits may be missing
+                        break;
+                    default:
+                        $_message .= "<p>Tätigkeit ".$_process['id_ocrm_processes']." wurde ignoriert: Feld '".$_field."' fehlt.</p>";
+                        $_skipprocess = true;
+                        break;
+                }
+            }
+        }
+        if ( $_skipprocess ) { continue; }
+        //   
 		$_pos = $index+1;
 		$_earliest = min($_earliest,$_process['processunixbegin']);
 		$_latest = max($_latest,$_process['processunixend']);
@@ -123,7 +142,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_reportpart = (new DateTime())::createFromFormat('U',$_process['processunixbegin'])->format('d.m.Y H:i').' - '.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format($_dayend.'H:i').': '.$_process['processdetails'].'<br />';
 		$_noreportlines = round(strlen($_reportpart)/105+0.5);
 		$_reportheight += $_noreportlines*4.6;
-		if ( $_reportheight > 260) { 
+		if ( $_reportheight > 220) { 
 			$_report .= "
 				</div>
 				<div class=\"invoice_page invoicereport\">
@@ -148,7 +167,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_nolines = round(strlen($_process['processtype'].': '.$_process['processdetails'])/55+0.5);
 		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_currentheight += $_nolines*4.6; }
 		//check if we need new page
-		if ( $_currentheight > 260) { 
+		if ( $_currentheight > 220) { 
 			$_nopages += 1;
 			$_processtable .= "
 					</table>
@@ -196,7 +215,7 @@ function createInvoice(array $PARAM, mysqli $conn)
                             $DTS = $EDT->addChild('udt:DateTimeString',(new DateTime($_process['processend']))->format('Ymd'),$udt);
                                 $DTS->addAttribute('format','102');
                     
-                if ( (float)$PARAMETER['invoicevat'] > 0 ) {
+                if ( (float)$PARAMETER['invoicevatrate'] > 0 ) {
                     $ATT = $SLTS->addChild('ram:ApplicableTradeTax',null,$ram);
                     $ATT->addChild('ram:TypeCode','VAT',$ram);
                     $ATT->addChild('ram:CategoryCode','S',$ram);
@@ -218,29 +237,29 @@ function createInvoice(array $PARAM, mysqli $conn)
                         $ADLD->addChild('ram:LineID',$_sectionno,$ram);
                     $STP = $ISCT->addChild('ram:SpecifiedTradeProduct',null,$ram);
                         $STP->addChild('ram:SellerAsignedID',null,$ram);
-                        $STP->addChild('ram:Name',$_oldtype,$ram);
+                        $STP->addChild('ram:Name',$oldtype,$ram);
                     $SLTA = $ISCT->addChild('ram:SpecifiedLineTradeAgreement',null,$ram);
                         $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice',null,$ram);
                             if ( $_totalunits[$oldtype]['1']*$_totalunits[$oldtype]['h'] == 0 ) {
-                                $_units = max($_totalunits[$oldtype]['1']*$_totalunits[$oldtype]['h']);
+                                $_units = max($_totalunits[$oldtype]['1'],$_totalunits[$oldtype]['h']);
                                 if ( $_totalunits[$oldtype]['1'] > 0 ) { $_unit = 'H87'; } else { $_unit = 'LH'; }
-                                $_productprice = $_totalnet[$_oldtype]/$_units; 
+                                $_productprice[$oldtype] = $_totalnet[$oldtype]/$_units;
                             }
-                            $NPPTP->addChild('ram:ChargeAmount',$_productprice,$ram);
+                            $NPPTP->addChild('ram:ChargeAmount',$_productprice[$oldtype],$ram);
                         $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice',null,$ram);
-                            $GPPTP->addChild('ram:ChargeAmount',$_productprice+(float)$_process['processvatrate']/100*$_productprice,$ram);
+                            $GPPTP->addChild('ram:ChargeAmount',$_productprice[$oldtype]+(float)$_process['processvatrate']/100*$_productprice[$oldtype],$ram);
                     $SLTD = $ISCT->addChild('ram:SpecifiedLineTradeDelivery',null,$ram);
                         $BQ = $SLTD->addChild('ram:BilledQuantity',$_units,$ram);
                         $BQ->addAttribute('unitCode',$_unit);
                     $SLTS = $ISCT->addChild('ram:SpecifiedLineTradeSettlement',null,$ram);
-                    if ( (float)$PARAMETER['invoicevat'] > 0 ) {
+                    if ( (float)$PARAMETER['invoicevatrate'] > 0 ) {
                         $ATT = $SLTS->addChild('ram:ApplicableTradeTax',null,$ram);
                         $ATT->addChild('ram:TypeCode','VAT',$ram);
                         $ATT->addChild('ram:CategoryCode','S',$ram);
                         $ATT->addChild('ram:RateApplicablePercent',inCents($_process['processvatrate'],$ram));
                     }
                         $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation',null,$ram);
-                            $STSLMS->addChild('ram:LineTotalAmount',inCents($_totalnet[$_oldtype],$ram));
+                            $STSLMS->addChild('ram:LineTotalAmount',inCents($_totalnet[$oldtype],$ram));
             } 
 		};
 	}
@@ -323,8 +342,8 @@ function createInvoice(array $PARAM, mysqli $conn)
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:ID')[0][0] = $PARAMETER['invoicenumber'];
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IssueDateTime/udt:DateTimeString')[0][0] = (new DateTime($PARAMETER['invoicedate']))->format('Ymd');
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[0][0] = $PARAMETER['invoicemessage'];
-    if ( (float)$PARAMETER['invoicevat'] == 0 ) {
-        $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[0][0] .= " Als Kleinunternehmen nach § 19 Abs. 1 UStG weist ".$_myid['name']." keine Umsatzsteuer aus.";
+    if ( (float)$PARAMETER['invoicevatrate'] == 0 ) {
+        $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[0][0] .= " Als Kleinunternehmen nach § 19 Abs. 1 UStG weist ".$_myid['idname']." keine Umsatzsteuer aus.";
     }
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:ExchangedDocument/ram:IncludedNote/ram:Content')[1][0] = $_myid['idname'].PHP_EOL.$_myid['idstreet'].PHP_EOL.$_myid['idpostcode'].' '.$_myid['idcity'].PHP_EOL.'USt-ID: '.$_myid['idvattaxnr'];
 
@@ -350,7 +369,7 @@ function createInvoice(array $PARAM, mysqli $conn)
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount')[0][0] = $_totalgrossamount;
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:DuePayableAmount')[0][0] = $_totalgrossamount;
 
-    if ( (float)$PARAMETER['invoicevat'] == 0 ) {
+    if ( (float)$PARAMETER['invoicevatrate'] == 0 ) {
         unset($_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount')[0]);
         unset($_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount')[0]);
         unset($_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount')[0]);
@@ -363,6 +382,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 	<form class="db_options function" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
 		<input type="text" hidden value="<?php html_echo($PARAMETER['id_ocrm_invoices']); ?>" name="id_ocrm_invoices" class="inputid" />
 	</form>
+    <div class="message"><div class="dbMessage false"><?php echo($_message); ?></div></div>
 	<div class="invoice_wrapper">
 		<div class="invoiceheader">
 			<div class="invoicecc"></div>
@@ -394,8 +414,8 @@ function createInvoice(array $PARAM, mysqli $conn)
 			</thead>
 			<?php echo($_processtable); ?>
 		</table>
-        <?php if ( (float)$PARAMETER['invoicevat'] == 0 ) { ?>
-    		<div>Als Kleinunternehmen nach § 19 Abs. 1 UStG weist <?php echo($_myid['name']); ?> keine Umsatzsteuer aus.</div>
+        <?php if ( (float)$PARAMETER['invoicevatrate'] == 0 ) { ?>
+    		<div>Als Kleinunternehmen nach § 19 Abs. 1 UStG weist <?php echo($_myid['idname']); ?> keine Umsatzsteuer aus.</div>
         <?php } 
         if ($_totalgrossamount > 0) { ?>
             <div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
