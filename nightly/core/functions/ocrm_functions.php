@@ -39,11 +39,11 @@ function createInvoice(array $PARAM, mysqli $conn)
     //get id of invoice to be corrected if necessary (check if it really exists!) and insert an "already charged" process in the correction
     $formerinvoice = array();
     $formerinvoice['id_ocrm_invoices'] = $PARAM['id_ocrm_invoices'];
-    if ( $PARAMETER['invoicecorrected'] != null AND $PARAMETER['invoicecorrected'] != "" AND $PARAMETER['invoicecorrected'] != "_none_" ) {
+    if ( $PARAMETER['invoicecorrection'] != null AND $PARAMETER['invoicecorrection'] != "" AND $PARAMETER['invoicecorrection'] != "_none_" ) {
         unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
         $_stmt_array['stmt'] = 'SELECT id_ocrm_invoices,invoiceamount,invoicevat from view__ocrm_invoices__'.$_SESSION['os_role'].' WHERE invoicenumber = ?';
         $_stmt_array['str_types'] = 's';
-        $_stmt_array['arr_values'] = array($PARAMETER['invoicecorrected']);
+        $_stmt_array['arr_values'] = array($PARAMETER['invoicecorrection']);
         $formerinvoice_response = execute_stmt($_stmt_array,$conn,true);
         if ( isset($formerinvoice_response['result']) ) {
             $formerinvoice = $formerinvoice_response['result'][0];
@@ -51,13 +51,13 @@ function createInvoice(array $PARAM, mysqli $conn)
     		echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Die zu korrigierende Rechnung existiert nicht."); return; 
         }     
         unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
-        $_stmt_array['stmt'] = "SELECT id_ocrm_processes FROM view__ocrm_processes__".$_SESSION['os_role']." WHERE processdetails = 'Rg. ".$PARAMETER['invoicecorrected']."'";
+        $_stmt_array['stmt'] = "SELECT id_ocrm_processes FROM view__ocrm_processes__".$_SESSION['os_role']." WHERE processdetails = 'Rg. ".$PARAMETER['invoicecorrection']."'";
         $correctionprocess = execute_stmt($_stmt_array,$conn);
         if ( ! isset($correctionprocess['result']) ) {
             unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
             $_stmt_array['stmt'] = 'INSERT INTO view__ocrm_processes__'.$_SESSION['os_role'].' (id_ocrm_customers,id_ocrm_invoices,processbegin,processend,processunit,processrate,processdetails,processtype,processvatrate,processunits) VALUES (?,?,?,?,?,?,?,?,?,?)';
             $_stmt_array['str_types'] = 'iissssssss';
-            $_stmt_array['arr_values'] = array($PARAMETER['id_ocrm_customers'],$PARAMETER['id_ocrm_invoices'],$PARAMETER['invoicedate'],$PARAMETER['invoicedate'],'1',(string)-(float)$formerinvoice['invoiceamount'],'Rg. '.$PARAMETER['invoicecorrected'],'Rabatt',0,1);
+            $_stmt_array['arr_values'] = array($PARAMETER['id_ocrm_customers'],$PARAMETER['id_ocrm_invoices'],$PARAMETER['invoicedate'],$PARAMETER['invoicedate'],'1',(string)-(float)$formerinvoice['invoiceamount'],'Rg. '.$PARAMETER['invoicecorrection'],'Rabatt',0,1);
             execute_stmt($_stmt_array,$conn);
         }
     }
@@ -70,7 +70,7 @@ function createInvoice(array $PARAM, mysqli $conn)
 	if ( ! isset($_customer_result) OR sizeof($_customer_result) == 0 ) { echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Die Rechnung ist keinem Kunde zugeordnet."); return; }
 	//get attributed processes
 	unset($_stmt_array); $_stmt_array = array(); unset($_table_result);
-	$_stmt_array['stmt'] = 'SELECT id_ocrm_processes, UNIX_TIMESTAMP(processbegin) AS processunixbegin, UNIX_TIMESTAMP(processend) AS processunixend, processunit, processunits, processrate, processdetails, processtype, processvatrate from view__ocrm_processes__'.$_SESSION['os_role'].' WHERE id_ocrm_invoices IN (?,?) ORDER BY processtype,processbegin';
+	$_stmt_array['stmt'] = 'SELECT id_ocrm_processes, UNIX_TIMESTAMP(processbegin) AS processunixbegin, UNIX_TIMESTAMP(processend) AS processunixend, processbegin, processend, processunit, processunits, processrate, processdetails, processtype, processvatrate from view__ocrm_processes__'.$_SESSION['os_role'].' WHERE id_ocrm_invoices IN (?,?) ORDER BY processtype,processbegin';
 	$_stmt_array['str_types'] = 'ii';
 	$_stmt_array['arr_values'] = array($PARAMETER['id_ocrm_invoices'],$formerinvoice['id_ocrm_invoices']);
 	$_processes_result = execute_stmt($_stmt_array,$conn,true)['result'];
@@ -94,6 +94,8 @@ function createInvoice(array $PARAM, mysqli $conn)
     //create XML in parallel
     $_invoicexmlstring = file_get_contents('../../core/xml/invoice_template.xml');
     $_invoicexml = new SimpleXMLElement($_invoicexmlstring);
+    $ram = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
+    $udt = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
     //register namespaces (see https://www.php.net/manual/en/simplexmlelement.xpath.php)
     foreach($_invoicexml->getDocNamespaces() as $strPrefix => $strNamespace) {
         if(strlen($strPrefix)==0) {
@@ -103,6 +105,8 @@ function createInvoice(array $PARAM, mysqli $conn)
     }
     $_sectionno = 0;
 	foreach ( $_processes_result as $index=>$_process ) {
+        //set process vat reate = 0 if invoice vat rate is 0
+        if ( $PARAMETER['invoicevatrate'] == 0  ) { $_process['processvatrate'] = 0; }
 		$_pos = $index+1;
 		$_earliest = min($_earliest,$_process['processunixbegin']);
 		$_latest = max($_latest,$_process['processunixend']);
@@ -164,34 +168,42 @@ function createInvoice(array $PARAM, mysqli $conn)
 		if ( $PARAMETER['invoicedetailed'] == "ja" ) {
             $_processtable .= '<tr class="'.$_marked[$index].'"><td>'.$_pos.'</td><td class="justify">'.$_process['processtype'].': '.$_process['processdetails'].'</td><td>'.(new DateTime())::createFromFormat('U',$_process['processunixend'])->format('d.m.Y').'</td><td>'.localFormat($_process['processrate']).'</td><td>'.localFormat(inCents($_process['processunits'])).str_replace('1','',$_process['processunit']).'</td><td>'.localFormat(inCents($_process['total'])).'</td></tr>';
             //xml part:
-            $ISCT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction')->addChild('ram:IncludedSupplyChainTradeLineItem');
-                $ADLD = $ISCT->addChild('ram:AssociatedDocumentLineDocument');
-                    $ADLD->addChild('ram:LineID',$_pos);
-                $STP = $ICST->addChild('ram:SpecifiedTradeProduct');
-                    $STP->addChild('ram:SellerAsignedID');
-                    $STP->addChild('ram:Name',$_process['processtype'].': '.$_process['processdetails']);
-                $SLTA = $ICST->addChild('ram:SpecifiedLineTradeAgreement');
-                    $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice');
-                        $NPPTP->addChild('ram:ChargeAmount',$_process['processrate']);
-                    $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice');
-                        $GPPTP->addChild('ram:ChargeAmount',$_process['processrate']+(float)$_process['processvatrate']/100*$_process['processrate']);
-                $SLTD = $ICST->addChild('ram:SpecifiedLineTradeDelivery');
-                    $BQ = $SLTD->addChild('ram:BilledQuantity',$_process['processunits']);
+            $ISCT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction')[0]->addChild('ram:IncludedSupplyChainTradeLineItem',null,$ram);
+                $ADLD = $ISCT->addChild('ram:AssociatedDocumentLineDocument',null,$ram);
+                    $ADLD->addChild('ram:LineID',$_pos,$ram);
+                $STP = $ISCT->addChild('ram:SpecifiedTradeProduct',null,$ram);
+                    $STP->addChild('ram:SellerAsignedID',null,$ram);
+                    $STP->addChild('ram:Name',$_process['processtype'].': '.$_process['processdetails'],$ram);
+                $SLTA = $ISCT->addChild('ram:SpecifiedLineTradeAgreement',null,$ram);
+                    $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice',null,$ram);
+                        $NPPTP->addChild('ram:ChargeAmount',$_process['processrate'],$ram);
+                    $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice',null,$ram);
+                        $GPPTP->addChild('ram:ChargeAmount',$_process['processrate']+(float)$_process['processvatrate']/100*$_process['processrate'],$ram);
+                $SLTD = $ISCT->addChild('ram:SpecifiedLineTradeDelivery',null,$ram);
+                    $BQ = $SLTD->addChild('ram:BilledQuantity',$_process['processunits'],$ram);
                     if ( $_process['processunit'] == 1 ) {
                         $BQ->addAttribute('unitCode','H87');
                     }
                     if ( $_process['processunit'] == 'h' ) {
                         $BQ->addAttribute('unitCode','LH');
                     }
-                $SLTS = $ICST->addChild('ram:SpecifiedLineTradeSettlement');
+                $SLTS = $ISCT->addChild('ram:SpecifiedLineTradeSettlement',null,$ram);
+                    $BSP = $SLTS->addChild('ram:BillingSpecifiedPeriod',null,$ram);
+                        $SDT = $BSP->addChild('ram:StartDateTime',null,$ram);
+                            $DTS = $SDT->addChild('udt:DateTimeString',(new DateTime($_process['processbegin']))->format('Ymd'),$udt);
+                                $DTS->addAttribute('format','102');
+                        $EDT = $BSP->addChild('ram:EndDateTime',null,$ram);
+                            $DTS = $EDT->addChild('udt:DateTimeString',(new DateTime($_process['processend']))->format('Ymd'),$udt);
+                                $DTS->addAttribute('format','102');
+                    
                 if ( (float)$PARAMETER['invoicevat'] > 0 ) {
-                    $ATT = $SLTS->addChild('ram:ApplicableTradeTax');
-                    $ATT->addChild('ram:TypeCode','VAT');
-                    $ATT->addChild('ram:CategoryCode','S');
-                    $ATT->addChild('ram:RateApplicablePercent',inCent($_process['processvatrate']));
+                    $ATT = $SLTS->addChild('ram:ApplicableTradeTax',null,$ram);
+                    $ATT->addChild('ram:TypeCode','VAT',$ram);
+                    $ATT->addChild('ram:CategoryCode','S',$ram);
+                    $ATT->addChild('ram:RateApplicablePercent',inCents($_process['processvatrate'],$ram));
                 }
-                    $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation');
-                        $STSLMS->addChild('ram:LineTotalAmount',inCents($_process['total']));
+                    $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation',null,$ram);
+                        $STSLMS->addChild('ram:LineTotalAmount',inCents($_process['total'],$ram));
         }
 		if ( ! isset($_processes_result[$_pos]) OR $_processes_result[$_pos]['processtype'] != $_process['processtype'] ) {
             $_sectionno += 1;
@@ -201,34 +213,34 @@ function createInvoice(array $PARAM, mysqli $conn)
 			$_processtable .= '<tr><th>&nbsp;</th><th>'.$oldtype.'</th><th>&nbsp;</th><th>&nbsp;</th><th>'.inTegers($_totalunits[$oldtype]['1']).' | '.localFormat(inCents($_totalunits[$oldtype]['h'])).'h</th><th>'.localFormat(inCents($_totalnet[$oldtype])).'</th></tr><tr><td>&nbsp;</td></tr>';
             //xml part:
             if ( $PARAMETER['invoicedetailed'] == "nein" ) {
-                $ISCT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction')->addChild('ram:IncludedSupplyChainTradeLineItem');
-                    $ADLD = $ISCT->addChild('ram:AssociatedDocumentLineDocument');
-                        $ADLD->addChild('ram:LineID',$_sectionno);
-                    $STP = $ICST->addChild('ram:SpecifiedTradeProduct');
-                        $STP->addChild('ram:SellerAsignedID');
-                        $STP->addChild('ram:Name',$_oldtype);
-                    $SLTA = $ICST->addChild('ram:SpecifiedLineTradeAgreement');
-                        $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice');
+                $ISCT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction')[0]->addChild('ram:IncludedSupplyChainTradeLineItem',null,$ram);
+                    $ADLD = $ISCT->addChild('ram:AssociatedDocumentLineDocument',null,$ram);
+                        $ADLD->addChild('ram:LineID',$_sectionno,$ram);
+                    $STP = $ISCT->addChild('ram:SpecifiedTradeProduct',null,$ram);
+                        $STP->addChild('ram:SellerAsignedID',null,$ram);
+                        $STP->addChild('ram:Name',$_oldtype,$ram);
+                    $SLTA = $ISCT->addChild('ram:SpecifiedLineTradeAgreement',null,$ram);
+                        $NPPTP = $SLTA->addChild('ram:NetPriceProductTradePrice',null,$ram);
                             if ( $_totalunits[$oldtype]['1']*$_totalunits[$oldtype]['h'] == 0 ) {
                                 $_units = max($_totalunits[$oldtype]['1']*$_totalunits[$oldtype]['h']);
                                 if ( $_totalunits[$oldtype]['1'] > 0 ) { $_unit = 'H87'; } else { $_unit = 'LH'; }
                                 $_productprice = $_totalnet[$_oldtype]/$_units; 
                             }
-                            $NPPTP->addChild('ram:ChargeAmount',$_productprice);
-                        $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice');
-                            $GPPTP->addChild('ram:ChargeAmount',$_productprice+(float)$_process['processvatrate']/100*$_productprice);
-                    $SLTD = $ICST->addChild('ram:SpecifiedLineTradeDelivery');
-                        $BQ = $SLTD->addChild('ram:BilledQuantity',$_units);
+                            $NPPTP->addChild('ram:ChargeAmount',$_productprice,$ram);
+                        $GPPTP = $SLTA->addChild('ram:GrossPriceProductTradePrice',null,$ram);
+                            $GPPTP->addChild('ram:ChargeAmount',$_productprice+(float)$_process['processvatrate']/100*$_productprice,$ram);
+                    $SLTD = $ISCT->addChild('ram:SpecifiedLineTradeDelivery',null,$ram);
+                        $BQ = $SLTD->addChild('ram:BilledQuantity',$_units,$ram);
                         $BQ->addAttribute('unitCode',$_unit);
-                    $SLTS = $ICST->addChild('ram:SpecifiedLineTradeSettlement');
+                    $SLTS = $ISCT->addChild('ram:SpecifiedLineTradeSettlement',null,$ram);
                     if ( (float)$PARAMETER['invoicevat'] > 0 ) {
-                        $ATT = $SLTS->addChild('ram:ApplicableTradeTax');
-                        $ATT->addChild('ram:TypeCode','VAT');
-                        $ATT->addChild('ram:CategoryCode','S');
-                        $ATT->addChild('ram:RateApplicablePercent',inCents($_process['processvatrate']));
+                        $ATT = $SLTS->addChild('ram:ApplicableTradeTax',null,$ram);
+                        $ATT->addChild('ram:TypeCode','VAT',$ram);
+                        $ATT->addChild('ram:CategoryCode','S',$ram);
+                        $ATT->addChild('ram:RateApplicablePercent',inCents($_process['processvatrate'],$ram));
                     }
-                        $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation');
-                            $STSLMS->addChild('ram:LineTotalAmount',inCents($_totalnet[$_oldtype]));
+                        $STSLMS = $SLTS->addChild('ram:SpecifiedTradeSettlementLineMonetarySummation',null,$ram);
+                            $STSLMS->addChild('ram:LineTotalAmount',inCents($_totalnet[$_oldtype],$ram));
             } 
 		};
 	}
@@ -253,19 +265,19 @@ function createInvoice(array $PARAM, mysqli $conn)
 		if ( $PARAMETER['invoicedetailed'] == "ja" ) { $_currentheight = 5+$_nolines*4.6; } else { $_currentheight = 5; }
 	}
     //do not show any vat if invoicevat = 0 ("Kleinunternhemerregelung")
-    if ( (float)$PARAMETER['invoicevat'] > 0 ) {
+    if ( (float)$PARAMETER['invoicevatrate'] > 0 ) {
         $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Netto</th><th>'.localFormat(inCents($_totalnetamounttotal)).'</th></tr>';
         $_totalgrossamount = $_totalnetamounttotal;
         foreach ($_totalvatamount as $vatrate=>$partialvatamount ) {
             $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>MwSt '.$vatrate.'%</th><th>'.localFormat(inCents($partialvatamount)).'</th></tr>';
             $_totalgrossamount += $partialvatamount;
             //xml part
-            $ATT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement')[0]->addChild('ram:ApplicableTradeTax');
-            $ATT->addChild('ram:CalculatedAmount',$partialvatamount);
-            $ATT->addChild('ram:TypeCode','VAT');
-            $ATT->addChild('ram:BasisAmount',$_totalnetamount[$vatrate]);
-            $ATT->addChild('ram:CategoryCode','S');
-            $ATT->addChild('ram:RateApplicablePercent',$vatrate);
+            $ATT = $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement')[0]->addChild('ram:ApplicableTradeTax',null,$ram);
+            $ATT->addChild('ram:CalculatedAmount',$partialvatamount,$ram);
+            $ATT->addChild('ram:TypeCode','VAT',$ram);
+            $ATT->addChild('ram:BasisAmount',$_totalnetamount[$vatrate],$ram);
+            $ATT->addChild('ram:CategoryCode','S',$ram);
+            $ATT->addChild('ram:RateApplicablePercent',$vatrate,$ram);
         }
         $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>Gesamt</th><th>'.localFormat(inCents($_totalgrossamount)).'</th></tr>';
     } else {
@@ -273,15 +285,19 @@ function createInvoice(array $PARAM, mysqli $conn)
         $_totalgrossamount = $_totalnetamounttotal;
     }
     if ( isset($formerinvoice['invoicevat']) ) {
-        $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><td>In Rg. '.$PARAMETER['invoicecorrected'].' enthaltene MwSt</td><td>'.localFormat(inCents($formerinvoice['invoicevat'])).'</td></tr>';
+        $_processtable .= '<tr><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><th>&nbsp;</th><td>In Rg. '.$PARAMETER['invoicecorrection'].' enthaltene MwSt</td><td>'.localFormat(inCents($formerinvoice['invoicevat'])).'</td></tr>';
+    }
+    //test if it is a correction
+	$_copy = '';
+    if ( $PARAMETER['invoicecorrection'] != null AND $PARAMETER['invoicecorrection'] != "" AND $PARAMETER['invoicecorrection'] != "_none_" ) {
+        $_copy .= 'skorrektur';
     }
 	//test if inovice has already been finished and changed
-	$_copy = '';
 	if ( $PARAMETER['invoicefinished'] == "ja" ) {
 		if ( $PARAMETER['invoiceamount'] != (string)inCents($_totalgrossamount) OR $PARAMETER['invoicevat'] != (string)(inCents($_totalgrossamount)-inCents($_totalnetamounttotal)) ) {
 			echo("<label><i class=\"fas fa-exclamation-triangle\"></i></label>Die Rechnung wurde nach Erstellung geändert. Wenn die Änderungen legitim sind, ändern Sie den Status der Rechnung auf unerstellt und erstellen Sie sie erneut."); return; 
 		} else {
-			$_copy = " - Kopie";
+			$_copy .= " - Kopie";
 		}
 	} else {
 		$PARAMETER['invoicenumber'] = $PARAMETER['id_ocrm_invoices'].'R'.$invno;
@@ -291,7 +307,11 @@ function createInvoice(array $PARAM, mysqli $conn)
 		$_stmt_array['arr_values'] = array();
 		$_stmt_array['arr_values'][] = (string)$PARAMETER['invoicenumber'];
 		$_stmt_array['arr_values'][] = (string)inCents($_totalgrossamount);
-		$_stmt_array['arr_values'][] = (string)(inCents($_totalgrossamount)-inCents($_totalnetamounttotal));
+        if ( isset($formerinvoice['invoicevat']) ) {
+    		$_stmt_array['arr_values'][] = (string)(inCents($_totalgrossamount)-inCents($_totalnetamounttotal)-inCents($formerinvoice['invoicevat']));
+        } else {
+    		$_stmt_array['arr_values'][] = (string)(inCents($_totalgrossamount)-inCents($_totalnetamounttotal));
+        }
 		$_stmt_array['arr_values'][] = $PARAMETER['id_ocrm_invoices'];
 		_execute_stmt($_stmt_array,$conn);
 	}
@@ -321,8 +341,8 @@ function createInvoice(array $PARAM, mysqli $conn)
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:PostalTradeAddress/ram:LineOne')[0][0] = $_customer_result['street'];
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:PostalTradeAddress/ram:CityName')[0][0] = $_customer_result['city'];
 
-    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeDelivery/ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/ram:DateTimeString')[0][0] = (new DateTime())::createFromFormat('U',$_latest)->format('Ymd');
-    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/ram:DateTimeString')[0][0] = (new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('Ymd');
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeDelivery/ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/udt:DateTimeString')[0][0] = (new DateTime())::createFromFormat('U',$_latest)->format('Ymd');
+    $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/udt:DateTimeString')[0][0] = (new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('Ymd');
 
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:LineTotalAmount')[0][0] = $_totalnetamounttotal;
     $_invoicexml->xpath('/rsm:CrossIndustryInvoice/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount')[0][0] = $_totalnetamounttotal;
@@ -337,7 +357,7 @@ function createInvoice(array $PARAM, mysqli $conn)
     }
 	?>
     <script type="text/javascript" src="/js/ocrm.js"></script>
-    <img hidden src="" onerror="exportXMLBase64('<?php echo($PARAMETER['invoicenumber']); ?>',null,'<?php base64_encode($_invoicexml->asXML()); ?>')"> 
+    <img hidden src="" onerror="exportXMLBase64('<?php echo($PARAMETER['invoicenumber']); ?>','<?php echo base64_encode($_invoicexml->asXML()); ?>'); return false;"> 
 	<link rel="stylesheet" type="text/css" href="/css/ocrm_invoice.css">
 	<?php includeFunctions('DETAILS',$conn); ?>	
 	<form class="db_options function" method="POST" action="" onsubmit="callFunction(this,'dbAction','message'); return false;">
@@ -356,6 +376,9 @@ function createInvoice(array $PARAM, mysqli $conn)
 			<div class="invoicedata">
 				<table>
 				<tr><td>Rechnungsnummer</td><td><?php echo($PARAMETER['invoicenumber']); ?></td></tr>
+                <?php if ( $PARAMETER['invoicecorrection'] != null AND $PARAMETER['invoicecorrection'] != "" AND $PARAMETER['invoicecorrection'] != "_none_" ) { ?>
+				<tr><td>korrigiert Rechnung</td><td><?php echo($PARAMETER['invoicecorrection']); ?></td></tr>
+                <?php } ?>                    
 				<tr><td>Auftragssnummer</td><td><?php echo($PARAMETER['id_ocrm_proposals']); ?></td></tr>
 				<tr><td>Datum</td><td><?php echo((new DateTime($PARAMETER['invoicedate']))->format('d.m.Y')); ?></td></tr>
 				<tr><td>Kundennummer</td><td><?php echo($_customer_result['code']); ?></td></tr>
@@ -378,7 +401,7 @@ function createInvoice(array $PARAM, mysqli $conn)
             <div>Bitte überweisen Sie den Rechnungsbetrag von <strong><?php echo(localFormat(inCents($_totalgrossamount))); ?> €</strong> bis <strong><?php echo((new DateTime($PARAMETER['invoicedate']))->modify('+'.$PARAMETER['invoicetarget'].' days')->format('d.m.Y')); ?></strong> unter Angabe der Rechnungsnummer.</div>
         <?php }
         if ($_totalgrossamount < 0) { ?>
-            <div>Sofern oder sobald Ihre Bankdaten vorliegen, wird der Betrag von <strong><?php echo(localFormat(inCents(-$_totalgrossamount))); ?> in den nächsten Tagen auf Ihr Konto überwiesen. Alternativ können Sie den Betrag auch mit nachfolgenden Rechnungen verrechnen. Wenn Sie eine Verrechnung beabsichtigen, würde ich um eine kurze Benachrichtigung bitten.</div>
+            <div>Sofern oder sobald Ihre Bankdaten vorliegen, wird der Betrag von <strong><?php echo(localFormat(inCents(-$_totalgrossamount))); ?> €</strong> in den nächsten Tagen auf Ihr Konto überwiesen. Alternativ können Sie den Betrag auch mit nachfolgenden Rechnungen verrechnen. Wenn Sie eine Verrechnung beabsichtigen, würde ich um eine kurze Benachrichtigung bitten.</div>
         <?php } ?>
 		<div><?php echo($PARAMETER['invoicemessage']); ?></div>
 	</div> <!-- end of invoice_wrapper -->
